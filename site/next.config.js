@@ -8,10 +8,4 @@ const nextConfig = {
   },
 };
 
-// Adaptador Cloudflare (só ativo no build de produção para Pages)
-const { initOpenNextCloudflareForDev } = require("@opennextjs/cloudflare");
-if (process.env.NODE_ENV === "development") {
-  initOpenNextCloudflareForDev();
-}
-
 module.exports = nextConfig;
