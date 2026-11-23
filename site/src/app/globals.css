@@ -1,0 +1,79 @@
+﻿@import "tailwindcss";
+
+/* ===== Nova Casa Imóveis — tokens de marca =====
+   Paleta extraída da identidade visual: marrom quente e creme */
+@theme {
+  --color-brand-50: #fdf5e8;
+  --color-brand-100: #f9e7c8;
+  --color-brand-200: #f0cc96;
+  --color-brand: #7b4f2e;
+  --color-brand-600: #663f22;
+  --color-brand-700: #522f18;
+
+  --color-gold: #c9972b;
+  --color-gold-light: #f0d08a;
+
+  --color-ink: #1c1008;
+  --color-ink-800: #2e1e0e;
+  --color-ink-700: #3d2a14;
+  --color-ink-600: #5a4030;
+  --color-ink-500: #7a6050;
+  --color-ink-400: #9e8878;
+
+  --color-line: #e8dccc;
+  --color-paper: #fdf8f0;
+  --color-sand: #f0e6d6;
+
+  --font-display: "Playfair Display", "Georgia", ui-serif, serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 1.25rem;
+  --shadow-card: 0 1px 2px rgb(28 16 8 / 0.05), 0 8px 24px -12px rgb(28 16 8 / 0.14);
+  --shadow-lift: 0 2px 4px rgb(28 16 8 / 0.06), 0 18px 40px -16px rgb(28 16 8 / 0.24);
+}
+
+@layer base {
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-white text-ink font-sans antialiased;
+  }
+  h1, h2, h3, h4 { @apply font-display tracking-tight text-ink; }
+  ::selection { @apply bg-brand text-white; }
+}
+
+@utility container-nc { @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8; }
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-full px-5 py-2.5 text-sm font-semibold transition
+    focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:opacity-60;
+}
+@utility btn-primary { @apply btn bg-brand text-white hover:bg-brand-600; }
+@utility btn-dark { @apply btn bg-ink text-white hover:bg-ink-700; }
+@utility btn-outline { @apply btn border border-line bg-white text-ink hover:border-brand; }
+@utility btn-whatsapp { @apply btn bg-[#25d366] text-white hover:bg-[#1ebe5b]; }
+@utility btn-gold { @apply btn bg-gold text-white hover:bg-gold/85; }
+
+@utility eyebrow { @apply text-xs font-semibold uppercase tracking-[0.18em] text-brand; }
+
+@utility field {
+  @apply w-full rounded-xl border border-line bg-white px-4 py-3 text-sm text-ink placeholder:text-ink-400
+    outline-none transition focus:border-brand focus:ring-4 focus:ring-brand/8;
+}
+@utility label { @apply mb-1.5 block text-xs font-semibold text-ink-600; }
+
+@utility card { @apply overflow-hidden rounded-[var(--radius-card)] border border-line bg-white shadow-[var(--shadow-card)]; }
+
+/* Linha dourada decorativa acima de títulos de seção */
+@utility gold-mark {
+  @apply relative inline-block pt-3;
+  &::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 3px;
+    width: 2.5rem;
+    background: var(--color-gold);
+    border-radius: 2px;
+  }
+}
