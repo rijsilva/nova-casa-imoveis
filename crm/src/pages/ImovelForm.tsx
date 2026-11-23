@@ -1,6 +1,19 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Plus, Trash2, Video } from "lucide-react";
+import { ImagePlus, Plus, Trash2, Video } from "lucide-react";
+
+const CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
+const PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
+
+async function uploadFoto(file: File): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  fd.append("upload_preset", PRESET);
+  const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(await r.text());
+  const json = await r.json();
+  return json.secure_url as string;
+}
 import { PageHeader } from "@/components/ui";
 import { useStore } from "@/lib/store";
 import type { Finalidade, Imovel, TipoImovel } from "@/lib/types";
@@ -27,6 +40,8 @@ export function ImovelForm() {
   const [fotos, setFotos] = useState<string[]>(existente?.fotos ?? []);
   const [videoUrl, setVideoUrl] = useState(existente?.videoUrl ?? "");
   const [enviando, setEnviando] = useState(false);
+  const [fazendoUpload, setFazendoUpload] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function addCaracteristica() {
     const v = novaCaract.trim();
@@ -209,24 +224,62 @@ export function ImovelForm() {
         <section className="panel p-6 space-y-4">
           <h2 className="text-base font-bold">Fotos e vídeo</h2>
           <div>
-            <label className="label">Fotos (URLs do Cloudinary)</label>
-            <p className="mb-2 text-xs text-ink-400">Após conectar o Cloudinary, aqui aparecerá o upload. Por enquanto insira as URLs manualmente.</p>
-            {fotos.map((url, i) => (
-              <div key={i} className="mb-2 flex gap-2">
-                <input
-                  className="field flex-1"
-                  value={url}
-                  onChange={(e) => setFotos(fotos.map((f, j) => j === i ? e.target.value : f))}
-                  placeholder="https://res.cloudinary.com/…"
-                />
-                <button type="button" className="btn-outline text-red-500" onClick={() => setFotos(fotos.filter((_, j) => j !== i))} aria-label="Remover foto">
-                  <Trash2 className="h-4 w-4" />
-                </button>
+            <label className="label">Fotos</label>
+
+            {/* grid de preview */}
+            {fotos.length > 0 && (
+              <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                {fotos.map((url, i) => (
+                  <div key={i} className="group relative aspect-video overflow-hidden rounded-lg border border-ink-100 bg-ink-50">
+                    <img src={url} alt="" className="h-full w-full object-cover" />
+                    {i === 0 && (
+                      <span className="absolute left-1 top-1 rounded bg-gold px-1.5 py-0.5 text-[10px] font-bold text-white">capa</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setFotos(fotos.filter((_, j) => j !== i))}
+                      className="absolute right-1 top-1 hidden rounded bg-black/60 p-1 text-white group-hover:flex"
+                      aria-label="Remover foto"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
               </div>
-            ))}
-            <button type="button" className="btn-outline mt-1" onClick={() => setFotos([...fotos, ""])}>
-              <Plus className="h-4 w-4" /> Adicionar foto
+            )}
+
+            {/* input de upload */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={async (e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (!files.length) return;
+                setFazendoUpload(true);
+                try {
+                  const urls = await Promise.all(files.map(uploadFoto));
+                  setFotos((prev) => [...prev, ...urls]);
+                } catch (err) {
+                  alert("Erro ao enviar foto: " + String(err));
+                } finally {
+                  setFazendoUpload(false);
+                  if (fileInputRef.current) fileInputRef.current.value = "";
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="btn-outline"
+              disabled={fazendoUpload}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4" />
+              {fazendoUpload ? "Enviando…" : "Adicionar fotos"}
             </button>
+            <p className="mt-1 text-xs text-ink-400">A primeira foto será usada como capa. Arraste para reordenar (em breve).</p>
           </div>
 
           <div>
