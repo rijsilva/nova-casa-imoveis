@@ -3,6 +3,7 @@ import "./globals.css";
 import { Header } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { WhatsAppFloat } from "@/components/WhatsAppFloat";
+import { CookieBanner } from "@/components/CookieBanner";
 import { site } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,13 @@ export const metadata: Metadata = {
   title: { default: "Nova Casa Imóveis — Imóveis em Paulínia/SP", template: "%s | Nova Casa Imóveis" },
   description: "Imóveis à venda e para alugar em Paulínia/SP e região. Atendimento personalizado do primeiro contato à entrega das chaves.",
   openGraph: { type: "website", locale: "pt_BR", siteName: site.nome },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "any" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -30,6 +38,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main>{children}</main>
         <Footer />
         <WhatsAppFloat />
+        <CookieBanner />
       </body>
     </html>
   );

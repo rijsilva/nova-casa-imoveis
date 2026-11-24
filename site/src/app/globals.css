@@ -63,6 +63,20 @@
 
 @utility card { @apply overflow-hidden rounded-[var(--radius-card)] border border-line bg-white shadow-[var(--shadow-card)]; }
 
+/* Tipografia para páginas de conteúdo (política, sobre, etc.) */
+@utility prose-brand {
+  @apply text-ink-700 leading-relaxed;
+  h1 { @apply text-4xl font-bold text-ink mb-4 mt-0; }
+  h2 { @apply text-xl font-bold text-ink mt-10 mb-3; }
+  h3 { @apply text-base font-semibold text-ink mt-6 mb-2; }
+  p  { @apply mb-4; }
+  ul { @apply mb-4 ml-5 list-disc space-y-1; }
+  ol { @apply mb-4 ml-5 list-decimal space-y-1; }
+  li { @apply text-ink-700; }
+  a  { @apply text-brand underline underline-offset-2 hover:text-brand-600; }
+  strong { @apply font-semibold text-ink; }
+}
+
 /* Linha dourada decorativa acima de títulos de seção */
 @utility gold-mark {
   @apply relative inline-block pt-3;
