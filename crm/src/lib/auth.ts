@@ -1,12 +1,9 @@
-// Autenticação com Supabase Auth — conectar após configurar o projeto.
-export type Papel = "admin" | "corretor";
+import { useStore } from "./store";
 
-export function pode(papel: Papel, permissao: "verTodosLeads" | "editarImoveis" | "verPainel"): boolean {
-  if (papel === "admin") return true;
-  const perms: Record<string, Papel[]> = {
-    verTodosLeads: ["admin"],
-    editarImoveis: ["admin"],
-    verPainel: ["admin", "corretor"],
-  };
-  return (perms[permissao] ?? []).includes(papel);
+export type Permissao = "editarCatalogo" | "verTodosLeads";
+
+export function usePode(_p: Permissao): boolean {
+  const sessaoId = useStore((s) => s.sessaoId);
+  // Enquanto não há sistema de papéis implementado, qualquer usuário logado pode tudo
+  return sessaoId !== null;
 }

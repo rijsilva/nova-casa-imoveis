@@ -1,85 +1,87 @@
-import { Link } from "react-router-dom";
-import { Edit2, Eye, EyeOff, Plus, Star } from "lucide-react";
-import { Empty, PageHeader } from "@/components/ui";
-import { moeda } from "@/lib/format";
+import { Link, useSearchParams } from "react-router-dom";
+import { Eye, EyeOff, Plus, Search } from "lucide-react";
+import { Badge, PageHeader, Segmentado, Vazio } from "@/components/ui";
+import { moeda, tempoRelativo } from "@/lib/format";
 import { useStore } from "@/lib/store";
-
-const CORRETORES: Record<string, string> = {
-  edjalma: "Edjalma",
-  silvio: "Silvio",
-};
 
 export function Imoveis() {
   const imoveis = useStore((s) => s.imoveis);
+  const [params, setParams] = useSearchParams();
+  const q = params.get("q") ?? "";
+  const fin = (params.get("finalidade") ?? "") as "" | "venda" | "locacao";
+  const prop = params.get("proprietario") ?? "";
+  const setParam = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p, { replace: true }); };
+
+  const lista = imoveis.filter((i) =>
+    (!fin || i.finalidade === fin) &&
+    (!q || [i.titulo, i.ref, i.bairro, i.cidade, i.tipo].some((x) => x.toLowerCase().includes(q.toLowerCase()))) &&
+    (!prop || (i.proprietarioNome ?? "").toLowerCase().includes(prop.toLowerCase()) || (i.proprietarioTelefone ?? "").includes(prop))
+  );
 
   return (
     <>
       <PageHeader
         titulo="Imóveis"
-        descricao="Gestão do catálogo publicado no site"
-        acoes={
-          <Link to="/imoveis/novo" className="btn-primary">
-            <Plus className="h-4 w-4" /> Novo imóvel
-          </Link>
-        }
+        descricao="Imóveis prontos para venda e locação."
+        acoes={<Link to="/imoveis/novo" className="btn-primary"><Plus className="h-4 w-4" /> Novo imóvel</Link>}
       />
-
-      <div className="panel overflow-hidden">
-        {imoveis.length === 0
-          ? <Empty mensagem="Nenhum imóvel cadastrado. Clique em + Novo imóvel para começar." />
-          : (
-            <table className="w-full text-sm">
-              <thead className="bg-paper">
-                <tr>
-                  <th className="th">Imóvel</th>
-                  <th className="th">Finalidade</th>
-                  <th className="th">Preço</th>
-                  <th className="th">Corretor</th>
-                  <th className="th">Status</th>
-                  <th className="th text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {imoveis.map((i) => (
-                  <tr key={i.id} className="hover:bg-paper">
-                    <td className="td">
-                      <div className="flex items-center gap-3">
-                        {i.fotos[0] && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={i.fotos[0]} alt={i.titulo} className="h-10 w-14 rounded-lg object-cover" />
-                        )}
-                        <div>
-                          <p className="font-semibold">{i.titulo}</p>
-                          <p className="text-xs text-ink-400">{i.ref} · {i.bairro}, {i.cidade}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="td">
-                      <span className={`badge-muted ${i.finalidade === "venda" ? "text-brand" : "text-gold"}`}>
-                        {i.finalidade === "venda" ? "Venda" : "Locação"}
-                      </span>
-                    </td>
-                    <td className="td font-semibold">{moeda(i.preco)}{i.finalidade === "locacao" && "/mês"}</td>
-                    <td className="td text-ink-600">{CORRETORES[i.corretorId] ?? i.corretorId}</td>
-                    <td className="td">
-                      <div className="flex items-center gap-2">
-                        {i.publicado
-                          ? <span className="badge-active flex items-center gap-1"><Eye className="h-3 w-3" /> Publicado</span>
-                          : <span className="badge-muted flex items-center gap-1"><EyeOff className="h-3 w-3" /> Rascunho</span>}
-                        {i.destaque && <Star className="h-4 w-4 text-gold fill-gold" />}
-                      </div>
-                    </td>
-                    <td className="td text-right">
-                      <Link to={`/imoveis/${i.id}`} className="btn-ghost">
-                        <Edit2 className="h-4 w-4" /> Editar
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
+        <div className="relative w-full sm:w-72">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <input className="field pl-9" placeholder="Ref., título, bairro ou tipo" value={q} onChange={(e) => setParam("q", e.target.value)} />
+        </div>
+        <Segmentado valor={fin} onChange={(v) => setParam("finalidade", v)} opcoes={[{ v: "", label: "Todos" }, { v: "venda", label: "Venda" }, { v: "locacao", label: "Locação" }]} />
+        <div className="relative w-full sm:w-56">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
+          <input className="field pl-9" placeholder="Buscar por proprietário" value={prop} onChange={(e) => setParam("proprietario", e.target.value)} />
+        </div>
       </div>
+
+      {lista.length === 0 ? <Vazio titulo="Nenhum imóvel encontrado" /> : (
+        <div className="panel overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="border-b border-line bg-paper">
+              <tr>
+                <th className="th">Imóvel</th>
+                <th className="th">Finalidade</th>
+                <th className="th">Valor</th>
+                <th className="th">Dorms</th>
+                <th className="th">Área</th>
+                <th className="th">Proprietário</th>
+                <th className="th">Site</th>
+                <th className="th">Atualizado</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-line">
+              {lista.map((i) => (
+                <tr key={i.id} className="hover:bg-paper">
+                  <td className="td">
+                    <Link to={`/imoveis/${i.id}`} className="flex items-center gap-3">
+                      <span className="h-11 w-16 shrink-0 overflow-hidden rounded-md bg-sand">{i.fotos[0] && <img src={i.fotos[0]} alt="" className="h-full w-full object-cover" />}</span>
+                      <span className="min-w-0">
+                        <span className="block font-mono text-[11px] text-ink-500">{i.ref}</span>
+                        <span className="block truncate font-semibold hover:underline">{i.titulo || "Imóvel sem título"}</span>
+                        <span className="block text-xs text-ink-500">{i.bairro} · {i.cidade}</span>
+                      </span>
+                    </Link>
+                  </td>
+                  <td className="td">{i.finalidade === "venda" ? <Badge>Venda</Badge> : <Badge tom="info">Locação</Badge>}</td>
+                  <td className="td tabular font-semibold">{moeda(i.preco)}{i.finalidade === "locacao" && <span className="font-normal text-ink-500">/mês</span>}</td>
+                  <td className="td tabular">{i.dormitorios}</td>
+                  <td className="td tabular">{i.areaUtil} m²</td>
+                  <td className="td">
+                    {i.proprietarioNome
+                      ? <span className="block truncate max-w-[140px]" title={i.proprietarioNome}>{i.proprietarioNome}</span>
+                      : <span className="text-ink-400">—</span>}
+                  </td>
+                  <td className="td">{i.publicado ? <Badge tom="ok"><Eye className="h-3 w-3" />No site</Badge> : <Badge><EyeOff className="h-3 w-3" />Rascunho</Badge>}</td>
+                  <td className="td whitespace-nowrap text-ink-500">{tempoRelativo(i.atualizadoEm)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </>
   );
 }

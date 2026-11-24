@@ -1,35 +1,40 @@
 import { create } from "zustand";
 import type { EtapaLead, Imovel, Lead, Usuario } from "./types";
-import { atualizarEtapaLead, buscarImoveis, buscarLeads, salvarImovel, salvarLead } from "./api";
+import { atualizarEtapaLead, buscarImoveis, buscarLeads, excluirImovel, salvarImovel, salvarLead } from "./api";
 
 type Store = {
   leads: Lead[];
   imoveis: Imovel[];
   usuarios: Usuario[];
+  sessaoId: string | null;
   carregando: boolean;
   erro: string | null;
 
   carregar: () => Promise<void>;
   upsertLead: (lead: Lead) => Promise<void>;
-  upsertImovel: (imovel: Imovel) => Promise<void>;
+  upsertImovel: (imovel: Imovel) => Promise<boolean>;
+  removerImovel: (id: string) => Promise<boolean>;
   moverEtapa: (id: string, etapa: EtapaLead) => Promise<void>;
 
   // setters locais (para compatibilidade)
   setLeads: (leads: Lead[]) => void;
   setImoveis: (imoveis: Imovel[]) => void;
   setUsuarios: (usuarios: Usuario[]) => void;
+  setSessaoId: (id: string | null) => void;
 };
 
 export const useStore = create<Store>((set, get) => ({
   leads: [],
   imoveis: [],
   usuarios: [],
+  sessaoId: null,
   carregando: false,
   erro: null,
 
   setLeads: (leads) => set({ leads }),
   setImoveis: (imoveis) => set({ imoveis }),
   setUsuarios: (usuarios) => set({ usuarios }),
+  setSessaoId: (sessaoId) => set({ sessaoId }),
 
   carregar: async () => {
     set({ carregando: true, erro: null });
@@ -57,7 +62,15 @@ export const useStore = create<Store>((set, get) => ({
         ? s.imoveis.map((i) => (i.id === imovel.id ? imovel : i))
         : [imovel, ...s.imoveis],
     }));
-    await salvarImovel(imovel);
+    try { await salvarImovel(imovel); return true; } catch { return false; }
+  },
+
+  removerImovel: async (id) => {
+    try {
+      await excluirImovel(id);
+      set((s) => ({ imoveis: s.imoveis.filter((i) => i.id !== id) }));
+      return true;
+    } catch { return false; }
   },
 
   moverEtapa: async (id, etapa) => {

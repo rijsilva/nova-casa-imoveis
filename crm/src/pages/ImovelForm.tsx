@@ -1,319 +1,288 @@
-import { useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { ImagePlus, Plus, Trash2, Video } from "lucide-react";
-
-const CLOUD = import.meta.env.VITE_CLOUDINARY_CLOUD_NAME as string;
-const PRESET = import.meta.env.VITE_CLOUDINARY_UPLOAD_PRESET as string;
-
-async function uploadFoto(file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append("file", file);
-  fd.append("upload_preset", PRESET);
-  const r = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD}/image/upload`, { method: "POST", body: fd });
-  if (!r.ok) throw new Error(await r.text());
-  const json = await r.json();
-  return json.secure_url as string;
-}
-import { PageHeader } from "@/components/ui";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Check, FileClock, Globe, Lock } from "lucide-react";
+import clsx from "clsx";
+import { DocumentosEditor } from "@/components/DocumentosEditor";
+import { EnderecoForm, enderecoVazio, validarEndereco } from "@/components/EnderecoForm";
+import { AlertaErros, Etapas, NavEtapas, erroDe, type ErroCampo } from "@/components/Etapas";
+import { FotosEditor } from "@/components/FotosEditor";
+import { ExcluirFicha } from "@/components/ExcluirFicha";
+import { Campo, ListaTextos, Toggle, Vazio } from "@/components/ui";
+import { usePode } from "@/lib/auth";
+import { cepFormatado, moeda, novoId, slugify, soDigitos } from "@/lib/format";
 import { useStore } from "@/lib/store";
-import type { Finalidade, Imovel, TipoImovel } from "@/lib/types";
+import type { Endereco, Finalidade, Imovel, TipoImovel } from "@/lib/types";
+import { InputMoeda } from "@/components/InputMoeda";
 
-const TIPOS: TipoImovel[] = ["Apartamento", "Casa", "Casa em condomínio", "Sobrado", "Terreno", "Sala comercial"];
-
-const CORRETORES = [
-  { id: "edjalma", nome: "Edjalma Teixeira" },
-  { id: "silvio", nome: "Silvio" },
+const ETAPAS = ["Informações básicas", "Endereço", "Comodidades", "Fotos e documentos", "Finalização"];
+const TIPOS: TipoImovel[] = ["Apartamento", "Casa", "Casa em condomínio", "Terreno", "Sala comercial", "Sobrado"];
+const COMODIDADES = [
+  "Piscina", "Academia", "Churrasqueira", "Espaço gourmet", "Salão de festas", "Playground", "Portaria 24h", "Elevador",
+  "Ar-condicionado", "Armários planejados", "Varanda", "Área de serviço", "Quintal", "Aceita pet", "Mobiliado", "Energia solar",
 ];
+
+function proximaRef(finalidade: Finalidade, imoveis: Imovel[]) {
+  const base = finalidade === "venda" ? 1000 : 2000;
+  const nums = imoveis.map((i) => Number(i.ref.replace(/\D/g, ""))).filter((n) => n >= base && n < base + 1000);
+  return `CN-${Math.max(base, ...nums) + 1}`;
+}
+
+function validar(i: Imovel): ErroCampo[] {
+  const e: ErroCampo[] = [];
+  const add = (etapa: number, campo: string, msg: string) => e.push({ etapa, campo, msg });
+  if (i.titulo.trim().length < 10) add(0, "Título", i.titulo.trim() ? "Use pelo menos 10 caracteres" : "Campo obrigatório");
+  if (!i.preco || i.preco <= 0) add(0, i.finalidade === "locacao" ? "Valor do aluguel" : "Valor de venda", "Informe um valor maior que zero");
+  if (!i.areaUtil || i.areaUtil <= 0) add(0, "Área útil", "Informe a área em m²");
+  if (i.areaTotal && i.areaTotal < i.areaUtil) add(0, "Área total", "Não pode ser menor que a área útil");
+  if (i.suites > i.dormitorios) add(0, "Suítes", "Não pode ser maior que o número de dormitórios");
+  if (i.tipo !== "Terreno" && i.banheiros < 1) add(0, "Banheiros", "Informe ao menos 1 banheiro");
+  if (i.tipo === "Casa em condomínio" && !i.nomeCondominio?.trim()) add(0, "Nome do condomínio", "Obrigatório para casa em condomínio");
+  if (i.proprietarioTelefone && ![10, 11].includes(soDigitos(i.proprietarioTelefone).length)) add(0, "Telefone do proprietário", "Telefone inválido (DDD + número)");
+  const rotulos: Record<keyof Endereco, string> = { cep: "CEP", logradouro: "Logradouro", numero: "Número", complemento: "Complemento", bairro: "Bairro", cidade: "Cidade", uf: "UF" };
+  Object.entries(validarEndereco(i.endereco)).forEach(([k, msg]) => add(1, rotulos[k as keyof Endereco], msg!));
+  if (i.fotos.length === 0) add(3, "Fotos", "Adicione ao menos 1 foto para publicar no site");
+  if (i.videoUrl && !/^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\//.test(i.videoUrl)) add(3, "Vídeo", "Use um link do YouTube");
+  return e;
+}
 
 export function ImovelForm() {
   const { id } = useParams();
   const navigate = useNavigate();
   const imoveis = useStore((s) => s.imoveis);
+  const existente = useStore((s) => s.imoveis.find((i) => i.id === id));
   const upsertImovel = useStore((s) => s.upsertImovel);
-  const existente = id ? imoveis.find((i) => i.id === id) : undefined;
+  const removerImovel = useStore((s) => s.removerImovel);
+  const editar = usePode("editarCatalogo");
+  const [etapa, setEtapa] = useState(0);
+  const [tentou, setTentou] = useState(false);
+  const [salvo, setSalvo] = useState<null | "rascunho" | "publicado">(null);
+  const [salvando, setSalvando] = useState(false);
+  const [imovel, setImovel] = useState<Imovel>(() => existente ?? {
+    id: novoId(), ref: proximaRef("venda", imoveis), slug: "", titulo: "", finalidade: "venda", tipo: "Apartamento",
+    endereco: enderecoVazio(), ocultarEndereco: true, cidade: "", bairro: "",
+    preco: 0, dormitorios: 2, suites: 0, banheiros: 1, vagas: 1, areaUtil: 0, descricao: "", caracteristicas: [], fotos: [], documentos: [],
+    publicado: false, destaque: false, corretorId: "", atualizadoEm: new Date().toISOString(), criadoEm: new Date().toISOString(),
+  });
+  const erros = useMemo(() => validar(imovel), [imovel]);
 
-  const [finalidade, setFinalidade] = useState<Finalidade>(existente?.finalidade ?? "venda");
-  const [tipo, setTipo] = useState<TipoImovel>(existente?.tipo ?? "Apartamento");
-  const [corretorId, setCorretorId] = useState(existente?.corretorId ?? "edjalma");
-  const [caracteristicas, setCaracteristicas] = useState<string[]>(existente?.caracteristicas ?? []);
-  const [novaCaract, setNovaCaract] = useState("");
-  const [fotos, setFotos] = useState<string[]>(existente?.fotos ?? []);
-  const [videoUrl, setVideoUrl] = useState(existente?.videoUrl ?? "");
-  const [enviando, setEnviando] = useState(false);
-  const [fazendoUpload, setFazendoUpload] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  if (id && !existente) return <Vazio titulo="Imóvel não encontrado" acao={<Link to="/imoveis" className="btn-secondary">Voltar</Link>} />;
 
-  function addCaracteristica() {
-    const v = novaCaract.trim();
-    if (v && !caracteristicas.includes(v)) { setCaracteristicas([...caracteristicas, v]); setNovaCaract(""); }
-  }
+  const set = <K extends keyof Imovel>(k: K, v: Imovel[K]) => { setImovel((x) => ({ ...x, [k]: v })); setSalvo(null); };
+  const err = (campo: string) => erroDe(erros, tentou, campo);
+  const cls = (campo: string) => clsx("field tabular", tentou && erros.some((e) => e.campo === campo) && "border-red-400");
+  const num = (k: keyof Imovel, campo: string, opcional = false) => ({
+    className: cls(campo), type: "number", min: 0, inputMode: "decimal" as const,
+    value: (imovel[k] as number | undefined) ?? "",
+    onChange: (e: React.ChangeEvent<HTMLInputElement>) => set(k, (e.target.value === "" ? (opcional ? undefined : 0) : Number(e.target.value)) as never),
+  });
+  const moedaCampo = (k: "preco" | "condominio" | "iptu", campo: string, opcional = false) => ({
+    className: cls(campo), valor: imovel[k] || undefined,
+    onChange: (n: number | undefined) => set(k, (n ?? (opcional ? undefined : 0)) as never),
+  });
+  const locacao = imovel.finalidade === "locacao";
+  const ir = (n: number) => { setEtapa(n); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setEnviando(true);
-    const d = new FormData(e.currentTarget);
-    const campo = (k: string) => String(d.get(k) ?? "").trim();
-    const num = (k: string) => Number(campo(k)) || 0;
-    const optNum = (k: string) => { const v = Number(campo(k)); return v > 0 ? v : undefined; };
-
-    const titulo = campo("titulo");
-    const slug = titulo.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-      .replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-").trim();
-
-    const imovel: Imovel = {
-      id: existente?.id ?? crypto.randomUUID(),
-      slug: existente?.slug ?? slug,
-      ref: campo("ref") || `CN-${Date.now().toString(36).toUpperCase()}`,
-      titulo,
-      finalidade,
-      tipo,
-      cidade: campo("cidade"),
-      bairro: campo("bairro"),
-      preco: num("preco"),
-      condominio: optNum("condominio"),
-      iptu: optNum("iptu"),
-      dormitorios: num("dormitorios"),
-      suites: num("suites"),
-      banheiros: num("banheiros"),
-      vagas: num("vagas"),
-      areaUtil: num("areaUtil"),
-      areaTotal: optNum("areaTotal"),
-      descricao: campo("descricao"),
-      caracteristicas,
-      fotos,
-      videoUrl: videoUrl.trim() || undefined,
-      destaque: d.get("destaque") === "on",
-      publicado: d.get("publicado") === "on",
-      corretorId,
-      criadoEm: existente?.criadoEm ?? new Date().toISOString(),
-      atualizadoEm: new Date().toISOString(),
+  async function salvar(publicar: boolean) {
+    if (publicar) {
+      setTentou(true);
+      if (erros.length) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    }
+    const dados: Imovel = {
+      ...imovel, publicado: publicar, destaque: publicar && imovel.destaque,
+      cidade: imovel.endereco.cidade, bairro: imovel.endereco.bairro,
+      slug: imovel.slug || slugify(`${imovel.titulo}-${imovel.ref}`),
     };
-
-    // TODO: salvar no Supabase + Cloudinary para fotos
-    upsertImovel(imovel);
-    setEnviando(false);
-    navigate("/imoveis");
+    setSalvando(true);
+    const ok = await upsertImovel(dados);
+    setSalvando(false);
+    if (!ok) return;
+    setImovel(dados);
+    setSalvo(publicar ? "publicado" : "rascunho");
+    if (!existente) navigate(`/imoveis/${imovel.id}`, { replace: true });
   }
 
-  return (
+  const botoes = (
     <>
-      <PageHeader titulo={existente ? "Editar imóvel" : "Novo imóvel"} />
-      <form onSubmit={onSubmit} className="space-y-6 pb-20">
-
-        {/* IDENTIFICAÇÃO */}
-        <section className="panel p-6 space-y-4">
-          <h2 className="text-base font-bold">Identificação</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label">Título *</label>
-              <input name="titulo" required defaultValue={existente?.titulo} className="field" placeholder="Ex.: Apartamento 2 quartos no centro" />
-            </div>
-            <div>
-              <label className="label">Referência (Ref.)</label>
-              <input name="ref" defaultValue={existente?.ref} className="field" placeholder="Ex.: CN-001" />
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="label">Finalidade *</label>
-              <select value={finalidade} onChange={(e) => setFinalidade(e.target.value as Finalidade)} className="field">
-                <option value="venda">Venda</option>
-                <option value="locacao">Locação</option>
-              </select>
-            </div>
-            <div>
-              <label className="label">Tipo *</label>
-              <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoImovel)} className="field">
-                {TIPOS.map((t) => <option key={t}>{t}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="label">Corretor responsável *</label>
-              <select value={corretorId} onChange={(e) => setCorretorId(e.target.value)} className="field">
-                {CORRETORES.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-              </select>
-              <p className="mt-1 text-xs text-ink-400">O WhatsApp deste corretor aparece no anúncio.</p>
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="label">Cidade *</label>
-              <input name="cidade" required defaultValue={existente?.cidade} className="field" placeholder="Ex.: Paulínia" />
-            </div>
-            <div>
-              <label className="label">Bairro *</label>
-              <input name="bairro" required defaultValue={existente?.bairro} className="field" placeholder="Ex.: Centro" />
-            </div>
-          </div>
-        </section>
-
-        {/* VALORES */}
-        <section className="panel p-6 space-y-4">
-          <h2 className="text-base font-bold">Valores</h2>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <div>
-              <label className="label">{finalidade === "locacao" ? "Aluguel (R$/mês) *" : "Preço de venda (R$) *"}</label>
-              <input name="preco" type="number" required min={0} defaultValue={existente?.preco} className="field" placeholder="0" />
-            </div>
-            <div>
-              <label className="label">Condomínio (R$/mês)</label>
-              <input name="condominio" type="number" min={0} defaultValue={existente?.condominio} className="field" placeholder="0" />
-            </div>
-            <div>
-              <label className="label">IPTU (R$/ano)</label>
-              <input name="iptu" type="number" min={0} defaultValue={existente?.iptu} className="field" placeholder="0" />
-            </div>
-          </div>
-        </section>
-
-        {/* CARACTERÍSTICAS */}
-        <section className="panel p-6 space-y-4">
-          <h2 className="text-base font-bold">Características</h2>
-          <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            {[
-              { name: "dormitorios", label: "Dormitórios" },
-              { name: "suites", label: "Suítes" },
-              { name: "banheiros", label: "Banheiros" },
-              { name: "vagas", label: "Vagas" },
-              { name: "areaUtil", label: "Área útil (m²)" },
-              { name: "areaTotal", label: "Área total (m²)" },
-            ].map((f) => (
-              <div key={f.name}>
-                <label className="label">{f.label}</label>
-                <input name={f.name} type="number" min={0} defaultValue={(existente as Record<string, unknown>)?.[f.name] as number} className="field" placeholder="0" />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* DESCRIÇÃO */}
-        <section className="panel p-6 space-y-4">
-          <h2 className="text-base font-bold">Descrição</h2>
-          <div>
-            <label className="label">Descrição do imóvel</label>
-            <textarea name="descricao" rows={5} defaultValue={existente?.descricao} className="field resize-y" placeholder="Descreva o imóvel, sua localização e diferenciais…" />
-          </div>
-          <div>
-            <label className="label">Itens e diferenciais</label>
-            <div className="flex gap-2">
-              <input
-                className="field flex-1"
-                placeholder="Ex.: Churrasqueira, Piscina…"
-                value={novaCaract}
-                onChange={(e) => setNovaCaract(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCaracteristica(); } }}
-              />
-              <button type="button" className="btn-outline" onClick={addCaracteristica}><Plus className="h-4 w-4" /></button>
-            </div>
-            {caracteristicas.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {caracteristicas.map((c) => (
-                  <span key={c} className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-3 py-1 text-xs font-medium text-brand">
-                    {c}
-                    <button type="button" onClick={() => setCaracteristicas(caracteristicas.filter((x) => x !== c))} aria-label={`Remover ${c}`}>
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* FOTOS E VÍDEO */}
-        <section className="panel p-6 space-y-4">
-          <h2 className="text-base font-bold">Fotos e vídeo</h2>
-          <div>
-            <label className="label">Fotos</label>
-
-            {/* grid de preview */}
-            {fotos.length > 0 && (
-              <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {fotos.map((url, i) => (
-                  <div key={i} className="group relative aspect-video overflow-hidden rounded-lg border border-ink-100 bg-ink-50">
-                    <img src={url} alt="" className="h-full w-full object-cover" />
-                    {i === 0 && (
-                      <span className="absolute left-1 top-1 rounded bg-gold px-1.5 py-0.5 text-[10px] font-bold text-white">capa</span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setFotos(fotos.filter((_, j) => j !== i))}
-                      className="absolute right-1 top-1 hidden rounded bg-black/60 p-1 text-white group-hover:flex"
-                      aria-label="Remover foto"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* input de upload */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              multiple
-              className="hidden"
-              onChange={async (e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (!files.length) return;
-                setFazendoUpload(true);
-                try {
-                  const urls = await Promise.all(files.map(uploadFoto));
-                  setFotos((prev) => [...prev, ...urls]);
-                } catch (err) {
-                  alert("Erro ao enviar foto: " + String(err));
-                } finally {
-                  setFazendoUpload(false);
-                  if (fileInputRef.current) fileInputRef.current.value = "";
-                }
-              }}
-            />
-            <button
-              type="button"
-              className="btn-outline"
-              disabled={fazendoUpload}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <ImagePlus className="h-4 w-4" />
-              {fazendoUpload ? "Enviando…" : "Adicionar fotos"}
-            </button>
-            <p className="mt-1 text-xs text-ink-400">A primeira foto será usada como capa. Arraste para reordenar (em breve).</p>
-          </div>
-
-          <div>
-            <label className="label flex items-center gap-1.5"><Video className="h-4 w-4 text-red-600" /> Link do vídeo no YouTube</label>
-            <input
-              className="field"
-              value={videoUrl}
-              onChange={(e) => setVideoUrl(e.target.value)}
-              placeholder="https://www.youtube.com/watch?v=... ou https://youtu.be/..."
-            />
-            <p className="mt-1 text-xs text-ink-400">O vídeo aparecerá como tour virtual na página do imóvel.</p>
-          </div>
-        </section>
-
-        {/* PUBLICAÇÃO */}
-        <section className="panel p-6 space-y-3">
-          <h2 className="text-base font-bold">Publicação</h2>
-          <label className="flex items-center gap-3 text-sm">
-            <input type="checkbox" name="publicado" defaultChecked={existente?.publicado ?? true} className="accent-brand h-4 w-4" />
-            <span>Publicado no site</span>
-          </label>
-          <label className="flex items-center gap-3 text-sm">
-            <input type="checkbox" name="destaque" defaultChecked={existente?.destaque} className="accent-brand h-4 w-4" />
-            <span>Marcar como destaque (aparece primeiro)</span>
-          </label>
-        </section>
-
-        <div className="flex justify-end gap-3">
-          <button type="button" className="btn-ghost" onClick={() => navigate("/imoveis")}>Cancelar</button>
-          <button type="submit" disabled={enviando} className="btn-primary px-8">
-            {enviando ? "Salvando…" : "Salvar imóvel"}
-          </button>
-        </div>
-      </form>
+      <button type="button" className="btn-secondary" disabled={salvando} onClick={() => salvar(false)}>
+        <FileClock className="h-4 w-4" /> {imovel.publicado ? "Voltar para rascunho" : "Salvar rascunho"}
+      </button>
+      <button type="button" className="btn-primary" disabled={salvando} onClick={() => salvar(true)}>
+        <Globe className="h-4 w-4" /> {salvando ? "Salvando..." : imovel.publicado ? "Salvar e manter no site" : "Salvar e publicar"}
+      </button>
     </>
   );
+
+  const comodidadesExtras = imovel.caracteristicas.filter((c) => !COMODIDADES.includes(c));
+
+  return (
+    <div>
+      <Link to="/imoveis" className="mb-4 inline-flex items-center gap-1.5 text-sm font-medium text-ink-500 hover:text-ink"><ArrowLeft className="h-4 w-4" /> Imóveis</Link>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="flex items-center gap-2 font-mono text-xs text-ink-500">{imovel.ref}
+            {existente && <span className={clsx("rounded-full px-2 py-0.5 font-sans text-[11px] font-semibold", imovel.publicado ? "bg-green-50 text-green-700" : "bg-sand text-ink-600")}>{imovel.publicado ? "No site" : "Rascunho"}</span>}
+          </p>
+          <h1 className="text-2xl font-bold">{existente ? imovel.titulo || "Imóvel sem título" : "Novo imóvel"}</h1>
+        </div>
+        {editar && (
+          <div className="flex items-center gap-2">
+            {salvo && <span className="inline-flex items-center gap-1 text-sm font-medium text-green-600"><Check className="h-4 w-4" /> {salvo === "publicado" ? "Publicado" : "Rascunho salvo"}</span>}
+            {existente && <ExcluirFicha id={imovel.id} nome={imovel.titulo} onExcluir={async () => { const ok = await removerImovel(imovel.id); if (ok) navigate("/imoveis"); return ok; }} />}
+            {botoes}
+          </div>
+        )}
+      </div>
+
+      <Etapas etapas={ETAPAS} atual={etapa} onIr={ir} erros={erros} mostrarErros={tentou} />
+      {tentou && <AlertaErros erros={erros} etapas={ETAPAS} onIr={ir} />}
+
+      <div className="panel p-5 sm:p-6">
+        <fieldset disabled={!editar} className="min-w-0">
+          {etapa === 0 && (
+            <div className="space-y-6">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Campo label="Título *" className="sm:col-span-3" dica={err("Título") ?? "Ex.: Apartamento 3 dormitórios no centro"}>
+                  <input className={cls("Título")} value={imovel.titulo} onChange={(e) => set("titulo", e.target.value)} />
+                </Campo>
+                <Campo label="Tipo de imóvel *">
+                  <select className="field" value={imovel.tipo} onChange={(e) => set("tipo", e.target.value as TipoImovel)}>{TIPOS.map((t) => <option key={t}>{t}</option>)}</select>
+                </Campo>
+                <Campo label="Finalidade *">
+                  <select className="field" value={imovel.finalidade} onChange={(e) => { const f = e.target.value as Finalidade; set("finalidade", f); if (!existente) set("ref", proximaRef(f, imoveis)); }}>
+                    <option value="venda">Venda</option><option value="locacao">Locação</option>
+                  </select>
+                </Campo>
+                <Campo label={locacao ? "Valor do aluguel (R$/mês) *" : "Valor de venda (R$) *"} dica={err(locacao ? "Valor do aluguel" : "Valor de venda") ?? (imovel.preco > 0 ? moeda(imovel.preco) : undefined)}>
+                  <InputMoeda {...moedaCampo("preco", locacao ? "Valor do aluguel" : "Valor de venda")} />
+                </Campo>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+                <Campo label="Dormitórios"><input {...num("dormitorios", "Dormitórios")} /></Campo>
+                <Campo label="Suítes" dica={err("Suítes")}><input {...num("suites", "Suítes")} /></Campo>
+                <Campo label="Banheiros" dica={err("Banheiros")}><input {...num("banheiros", "Banheiros")} /></Campo>
+                <Campo label="Vagas"><input {...num("vagas", "Vagas")} /></Campo>
+                <Campo label="Área útil (m²) *" dica={err("Área útil")}><input {...num("areaUtil", "Área útil")} /></Campo>
+                <Campo label="Área total (m²)" dica={err("Área total")}><input {...num("areaTotal", "Área total", true)} /></Campo>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Campo label="Condomínio (R$/mês)"><InputMoeda {...moedaCampo("condominio", "Condomínio", true)} /></Campo>
+                <Campo label={`Nome do condomínio${imovel.tipo === "Casa em condomínio" ? " *" : ""}`} dica={err("Nome do condomínio")}>
+                  <input className={cls("Nome do condomínio").replace("tabular", "")} value={imovel.nomeCondominio ?? ""} onChange={(e) => set("nomeCondominio", e.target.value)} />
+                </Campo>
+                <Campo label="IPTU (R$/mês)"><InputMoeda {...moedaCampo("iptu", "IPTU", true)} /></Campo>
+              </div>
+
+              <Campo label="Descrição"><textarea className="field" rows={5} value={imovel.descricao} onChange={(e) => set("descricao", e.target.value)} placeholder="Destaques do imóvel, estado de conservação, localização..." /></Campo>
+
+              {editar && (
+                <div className="rounded-xl border border-line bg-paper p-4">
+                  <p className="mb-3 flex items-center gap-1.5 text-sm font-semibold"><Lock className="h-3.5 w-3.5" /> Dados do proprietário <span className="font-normal text-ink-500">(uso interno, nunca aparece no site)</span></p>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Campo label="Nome"><input className="field" value={imovel.proprietarioNome ?? ""} onChange={(e) => set("proprietarioNome", e.target.value)} /></Campo>
+                    <Campo label="Telefone" dica={err("Telefone do proprietário")}><input className={cls("Telefone do proprietário")} value={imovel.proprietarioTelefone ?? ""} onChange={(e) => set("proprietarioTelefone", e.target.value)} /></Campo>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {etapa === 1 && (
+            <div className="space-y-6">
+              <EnderecoForm valor={imovel.endereco} onChange={(v) => set("endereco", v)} erros={tentou ? validarEndereco(imovel.endereco) : {}} />
+              <div className="flex items-start justify-between gap-4 rounded-xl border border-line p-4">
+                <div><p className="font-medium">Ocultar endereço exato no site</p><p className="text-xs text-ink-500">O site mostra só bairro e cidade. Recomendado para imóveis de terceiros.</p></div>
+                <Toggle ativo={imovel.ocultarEndereco} onChange={(v) => set("ocultarEndereco", v)} label="Ocultar endereço" />
+              </div>
+            </div>
+          )}
+
+          {etapa === 2 && (
+            <div className="space-y-6">
+              <p className="text-ink-500">Selecione o que o imóvel tem. Esses itens aparecem na página do imóvel no site.</p>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                {COMODIDADES.map((c) => {
+                  const marcado = imovel.caracteristicas.includes(c);
+                  return (
+                    <label key={c} className={clsx("flex cursor-pointer items-center gap-2.5 rounded-lg border px-3 py-2.5 text-sm transition", marcado ? "border-ink bg-sand font-semibold" : "border-line hover:border-ink-300")}>
+                      <input type="checkbox" className="accent-ink" checked={marcado}
+                        onChange={() => set("caracteristicas", marcado ? imovel.caracteristicas.filter((x) => x !== c) : [...imovel.caracteristicas, c])} />
+                      {c}
+                    </label>
+                  );
+                })}
+              </div>
+              <div>
+                <span className="label">Outros itens</span>
+                <ListaTextos valores={comodidadesExtras} placeholder="Ex.: Depósito privativo"
+                  onChange={(v) => set("caracteristicas", [...imovel.caracteristicas.filter((c) => COMODIDADES.includes(c)), ...v])} />
+              </div>
+            </div>
+          )}
+
+          {etapa === 3 && (
+            <div className="space-y-8">
+              <section>
+                <h3 className="mb-1 font-semibold">Fotos</h3>
+                {err("Fotos") && <p className="mb-2 text-sm text-red-500">{erros.find((e) => e.campo === "Fotos")!.msg}</p>}
+                <FotosEditor fotos={imovel.fotos} onChange={(v) => set("fotos", v)} somenteLeitura={!editar} />
+              </section>
+              <section>
+                <h3 className="mb-1 font-semibold">Documentos (PDF)</h3>
+                <p className="mb-3 text-xs text-ink-500">Matrícula, planta, IPTU, laudo... Ficam disponíveis para a equipe baixar. Não aparecem no site.</p>
+                <DocumentosEditor documentos={imovel.documentos} onChange={(v) => set("documentos", v)} somenteLeitura={!editar} />
+              </section>
+              <Campo label="Vídeo (YouTube)" dica={err("Vídeo") ?? "Opcional. Se preenchido, o vídeo aparece na página do imóvel."}>
+                <input className={cls("Vídeo").replace("tabular", "")} placeholder="https://www.youtube.com/watch?v=..." value={imovel.videoUrl ?? ""} onChange={(e) => set("videoUrl", e.target.value || undefined)} />
+              </Campo>
+            </div>
+          )}
+
+          {etapa === 4 && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="space-y-3">
+                <div className="rounded-xl border border-line p-4">
+                  <p className="font-medium">Situação: {imovel.publicado ? "publicado no site" : "rascunho"}</p>
+                  <p className="text-xs text-ink-500"><strong>Salvar rascunho</strong> guarda mesmo incompleto, só no CRM. <strong>Salvar e publicar</strong> exige todos os campos obrigatórios.</p>
+                </div>
+                <div className="flex items-start justify-between gap-4 rounded-xl border border-line p-4">
+                  <div><p className="font-medium">Destaque na home</p><p className="text-xs text-ink-500">Aparece na seção de destaque da página inicial.</p></div>
+                  <Toggle ativo={imovel.destaque} onChange={(v) => set("destaque", v)} label="Destaque" />
+                </div>
+              </div>
+              <div className="rounded-xl bg-paper p-4">
+                <p className="mb-3 font-semibold">Resumo</p>
+                <dl className="space-y-1.5 text-sm">
+                  <Resumo k="Título" v={imovel.titulo} />
+                  <Resumo k="Tipo / finalidade" v={`${imovel.tipo} · ${locacao ? "Locação" : "Venda"}`} />
+                  <Resumo k="Valor" v={imovel.preco ? `${moeda(imovel.preco)}${locacao ? "/mês" : ""}` : ""} />
+                  <Resumo k="Endereço" v={imovel.endereco.cidade ? `${imovel.endereco.logradouro}, ${imovel.endereco.numero} · ${imovel.endereco.bairro}, ${imovel.endereco.cidade}/${imovel.endereco.uf} · ${cepFormatado(imovel.endereco.cep)}` : ""} />
+                  <Resumo k="Comodidades" v={String(imovel.caracteristicas.length)} />
+                  <Resumo k="Fotos / documentos" v={`${imovel.fotos.length} / ${imovel.documentos.length}`} />
+                </dl>
+                {erros.length > 0 ? (
+                  <div className="mt-4 border-t border-line pt-3">
+                    <p className="mb-1 text-sm font-semibold text-red-500">Pendências para publicar ({erros.length})</p>
+                    <ul className="space-y-1 text-sm">
+                      {erros.map((e) => (
+                        <li key={e.campo + e.msg}><button type="button" className="text-left text-ink-700 hover:underline" onClick={() => ir(e.etapa)}>• <strong>{e.campo}</strong> ({ETAPAS[e.etapa]}): {e.msg}</button></li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : <p className="mt-4 flex items-center gap-1.5 border-t border-line pt-3 text-sm font-semibold text-green-600"><Check className="h-4 w-4" /> Tudo certo para publicar</p>}
+              </div>
+            </div>
+          )}
+        </fieldset>
+
+        <NavEtapas atual={etapa} total={ETAPAS.length} onIr={ir}
+          ultimo={editar ? <div className="flex flex-wrap gap-2">{botoes}</div> : <span />} />
+      </div>
+    </div>
+  );
+}
+
+function Resumo({ k, v }: { k: string; v: string }) {
+  return <div className="flex justify-between gap-4"><dt className="shrink-0 text-ink-500">{k}</dt><dd className={clsx("text-right", !v && "text-ink-400")}>{v || "—"}</dd></div>;
 }

@@ -2,7 +2,7 @@
  * Camada de acesso ao Supabase para o CRM da Nova Casa Imóveis.
  * Mapeia os campos internos (PT) para a estrutura existente do banco.
  */
-import type { EtapaLead, Finalidade, Imovel, Lead } from "./types";
+import type { Documento, Endereco, EtapaLead, Finalidade, Imovel, Lead } from "./types";
 
 const BASE = import.meta.env.VITE_SUPABASE_URL as string;
 const KEY  = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
@@ -50,61 +50,88 @@ function rowToImovel(r: PropRow): Imovel {
   const slug = String(r.slug ?? "").trim() ||
     title.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
       .replace(/[^a-z0-9\s-]/g, "").replace(/\s+/g, "-").replace(/-+/g, "-") + "-" + id.slice(0, 8);
+  const endereco: Endereco = {
+    cep: String(r.address_cep ?? ""),
+    logradouro: String(r.address_street ?? ""),
+    numero: String(r.address_number ?? ""),
+    complemento: r.address_complement ? String(r.address_complement) : undefined,
+    bairro: String(r.neighborhood ?? ""),
+    cidade: String(r.city ?? ""),
+    uf: String(r.address_uf ?? ""),
+  };
+  const documentos: Documento[] = Array.isArray(r.documents) ? r.documents as Documento[] : [];
   return {
     id, slug,
-    ref:           String(r.code ?? id.slice(0, 8).toUpperCase()),
-    titulo:        title,
-    finalidade:    toFinalidade(r.purpose),
-    tipo:          String(r.tipo ?? r.property_type_name ?? "Apartamento") as Imovel["tipo"],
-    cidade:        String(r.city ?? ""),
-    bairro:        String(r.neighborhood ?? ""),
-    preco:         Number(r.price ?? 0),
-    condominio:    r.condo_fee != null ? Number(r.condo_fee) : undefined,
-    iptu:          r.iptu != null ? Number(r.iptu) : undefined,
-    dormitorios:   Number(r.bedrooms ?? 0),
-    suites:        Number(r.suites ?? 0),
-    banheiros:     Number(r.bathrooms ?? 0),
-    vagas:         Number(r.parking_spaces ?? 0),
-    areaUtil:      Number(r.area_useful ?? 0),
-    areaTotal:     r.area_total != null ? Number(r.area_total) : undefined,
-    descricao:     String(r.description ?? ""),
-    caracteristicas: Array.isArray(r.features_list) ? r.features_list as string[] : [],
+    ref:              String(r.code ?? id.slice(0, 8).toUpperCase()),
+    titulo:           title,
+    finalidade:       toFinalidade(r.purpose),
+    tipo:             String(r.tipo ?? r.property_type_name ?? "Apartamento") as Imovel["tipo"],
+    endereco,
+    ocultarEndereco:  r.hide_address !== false,
+    cidade:           String(r.city ?? ""),
+    bairro:           String(r.neighborhood ?? ""),
+    nomeCondominio:   r.condo_name ? String(r.condo_name) : undefined,
+    preco:            Number(r.price ?? 0),
+    condominio:       r.condo_fee != null ? Number(r.condo_fee) : undefined,
+    iptu:             r.iptu != null ? Number(r.iptu) : undefined,
+    dormitorios:      Number(r.bedrooms ?? 0),
+    suites:           Number(r.suites ?? 0),
+    banheiros:        Number(r.bathrooms ?? 0),
+    vagas:            Number(r.parking_spaces ?? 0),
+    areaUtil:         Number(r.area_useful ?? 0),
+    areaTotal:        r.area_total != null ? Number(r.area_total) : undefined,
+    descricao:        String(r.description ?? ""),
+    caracteristicas:  Array.isArray(r.features_list) ? r.features_list as string[] : [],
     fotos,
-    videoUrl:      String(r.video_url ?? "") || undefined,
-    destaque:      r.is_featured === true,
-    publicado:     r.is_active !== false,
-    corretorId:    String(r.broker_id ?? ""),
-    criadoEm:      String(r.created_at ?? new Date().toISOString()),
-    atualizadoEm:  String(r.updated_at ?? new Date().toISOString()),
+    documentos,
+    videoUrl:         String(r.video_url ?? "") || undefined,
+    destaque:         r.is_featured === true,
+    publicado:        r.is_active !== false,
+    corretorId:       String(r.broker_id ?? ""),
+    proprietarioNome: r.owner_name ? String(r.owner_name) : undefined,
+    proprietarioTelefone: r.owner_phone ? String(r.owner_phone) : undefined,
+    criadoEm:         String(r.created_at ?? new Date().toISOString()),
+    atualizadoEm:     String(r.updated_at ?? new Date().toISOString()),
   };
 }
 
 function imovelToRow(i: Imovel, agencyId: string, propertyTypeId?: string) {
   return {
-    id:              i.id,
-    agency_id:       agencyId,
-    broker_id:       i.corretorId || null,
+    id:               i.id,
+    agency_id:        agencyId,
+    broker_id:        i.corretorId || null,
     property_type_id: propertyTypeId ?? null,
-    title:           i.titulo,
-    description:     i.descricao,
-    purpose:         fromFinalidade(i.finalidade),
-    price:           i.preco,
-    city:            i.cidade,
-    neighborhood:    i.bairro,
-    bedrooms:        i.dormitorios,
-    bathrooms:       i.banheiros,
-    suites:          i.suites,
-    parking_spaces:  i.vagas,
-    area_useful:     i.areaUtil,
-    area_total:      i.areaTotal ?? null,
-    condo_fee:       i.condominio ?? null,
-    iptu:            i.iptu ?? null,
-    photos:          i.fotos,
-    video_url:       i.videoUrl ?? null,
-    code:            i.ref,
-    is_featured:     i.destaque,
-    is_active:       i.publicado,
-    updated_at:      new Date().toISOString(),
+    title:            i.titulo,
+    description:      i.descricao,
+    purpose:          fromFinalidade(i.finalidade),
+    price:            i.preco,
+    city:             i.endereco.cidade || i.cidade,
+    neighborhood:     i.endereco.bairro || i.bairro,
+    address_cep:      i.endereco.cep,
+    address_street:   i.endereco.logradouro,
+    address_number:   i.endereco.numero,
+    address_complement: i.endereco.complemento ?? null,
+    address_uf:       i.endereco.uf,
+    hide_address:     i.ocultarEndereco,
+    condo_name:       i.nomeCondominio ?? null,
+    bedrooms:         i.dormitorios,
+    bathrooms:        i.banheiros,
+    suites:           i.suites,
+    parking_spaces:   i.vagas,
+    area_useful:      i.areaUtil,
+    area_total:       i.areaTotal ?? null,
+    condo_fee:        i.condominio ?? null,
+    iptu:             i.iptu ?? null,
+    photos:           i.fotos,
+    documents:        i.documentos,
+    video_url:        i.videoUrl ?? null,
+    code:             i.ref,
+    slug:             i.slug,
+    is_featured:      i.destaque,
+    is_active:        i.publicado,
+    owner_name:       i.proprietarioNome ?? null,
+    owner_phone:      i.proprietarioTelefone ?? null,
+    updated_at:       new Date().toISOString(),
   };
 }
 
@@ -171,6 +198,11 @@ export async function salvarImovel(i: Imovel): Promise<Imovel> {
   }
   const saved = await post<PropRow>("properties", { ...row, created_at: i.criadoEm });
   return rowToImovel(saved);
+}
+
+export async function excluirImovel(id: string): Promise<void> {
+  const r = await fetch(`${BASE}/rest/v1/properties?id=eq.${id}&agency_id=eq.${AGENCY_ID}`, { method: "DELETE", headers: headers() });
+  if (!r.ok) throw new Error(await r.text());
 }
 
 export async function buscarLeads(): Promise<Lead[]> {

@@ -35,3 +35,25 @@ export const canais: Record<string, string> = {
   indicacao: "Indicação",
   outro: "Outro",
 };
+
+export const soDigitos = (s: string) => s.replace(/\D/g, "");
+
+export const dataBR = (iso: string) => new Date(iso.length === 10 ? iso + "T12:00:00" : iso).toLocaleDateString("pt-BR");
+
+export const tamanhoArquivo = (b: number) =>
+  b >= 1048576 ? `${(b / 1048576).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(b / 1024))} KB`;
+
+export const cepFormatado = (c: string) => { const d = c.replace(/\D/g, ""); return d.length === 8 ? `${d.slice(0, 5)}-${d.slice(5)}` : c; };
+
+export const telefoneBR = (s: string) => {
+  const d = soDigitos(s).slice(-11);
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return s;
+};
+
+export function slugify(s: string) {
+  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+}
+
+export const novoId = () => crypto.randomUUID();
